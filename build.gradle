@@ -1,111 +1,74 @@
-buildscript {
-	repositories {
-		jcenter()
-		maven { url = "http://files.minecraftforge.net/maven" }
-	}
-	dependencies {
-		classpath 'net.minecraftforge.gradle:ForgeGradle:2.3-SNAPSHOT'
-	}
-}
-
 plugins {
-	id 'com.matthewprenger.cursegradle' version '1.0.9'
+	id 'fabric-loom' version '0.4-SNAPSHOT'
+	id 'maven-publish'
 }
 
-apply plugin: 'net.minecraftforge.gradle.forge'
-apply from: 'gradle/nonnull.gradle'
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
 
-def mc_version = "${mc_version_major}.${mc_version_minor}.${mc_version_patch}"
-def mc_version_compat_range = "[${mc_version_major}.${mc_version_minor},${mc_version_major}.${((mc_version_minor.toInteger())+1)})"
-def mc_username = project.hasProperty('dev_username') ? dev_username : "${mod_id}_dev"
-def mc_uuid = project.hasProperty('dev_uuid') ? dev_uuid : mod_id
-def buildNumber = "$System.env.BUILD_NUMBER" != "null" ? "$System.env.BUILD_NUMBER" : "0"
-
-version = "${mod_version_major}.${mod_version_minor}.${mod_version_patch}.${buildNumber}"
-group = "net.xalcon.${mod_id}"
-archivesBaseName = "${mod_id}_${mc_version}"
-
-sourceCompatibility = targetCompatibility = '1.8' // Need this here so eclipse task generates correctly.
-compileJava {
-	sourceCompatibility = targetCompatibility = '1.8'
-}
-
-minecraft {
-	version = "${mc_version}-${forge_version}"
-	runDir = "run"
-	mappings = mcp_mappings
-	clientRunArgs = [ "--username ${mc_username}", "--uuid ${mc_uuid}" ]
-
-	replace '@VERSION@', project.version
-	replace '@BUILD_NUMBER@', buildNumber
-	replace '@MC_VERSION@', mc_version_compat_range
-	replace '@CERT_FINGERPRINT@', cert_fingerprint
-}
-
-repositories {
-	maven { url 'http://dvs1.progwml6.com/files/maven' } // JEI
-}
+archivesBaseName = project.archives_base_name
+version = project.mod_version
+group = project.maven_group
 
 dependencies {
-	deobfCompile "mezz.jei:jei_1.12:4.7.5.85:api"
-	runtime "mezz.jei:jei_1.12:4.7.5.85"
+	//to change the versions see the gradle.properties file
+	minecraft "com.mojang:minecraft:1.16.1"
+	mappings "net.fabricmc:yarn:1.16.1+build.21:v2"
+	modImplementation "net.fabricmc:fabric-loader:0.9.0+build.204"
+	modApi "net.fabricmc.fabric-api:fabric-api:0.16.0+build.384-1.16.1"
+	modApi "io.github.prospector:modmenu:1.14.5+build.30"
+	modApi "me.shedaniel:RoughlyEnoughItems:4.10.3"
 }
 
 processResources {
 	inputs.property "version", project.version
-	inputs.property "mcversion", project.minecraft.version
 
 	from(sourceSets.main.resources.srcDirs) {
-		include 'mcmod.info'
-		expand 'version':project.version, 'mcversion':mc_version_compat_range
+		include "fabric.mod.json"
+		expand "version": project.version
 	}
 
 	from(sourceSets.main.resources.srcDirs) {
-		exclude 'mcmod.info'
+		exclude "fabric.mod.json"
 	}
-	
-	rename '(.+_at.cfg)', 'META-INF/$1'
+}
+
+// ensure that the encoding is set to UTF-8, no matter what the system default is
+// this fixes some edge cases with special characters not displaying correctly
+// see http://yodaconditions.net/blog/fix-for-java-file-encoding-problems-with-gradle.html
+tasks.withType(JavaCompile) {
+	options.encoding = "UTF-8"
+}
+
+// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+// if it is present.
+// If you remove this task, sources will not be generated.
+task sourcesJar(type: Jar, dependsOn: classes) {
+	classifier = "sources"
+	from sourceSets.main.allSource
 }
 
 jar {
-	manifest {
-		attributes 'FMLAT': "${mod_id}_at.cfg"
+	from "LICENSE"
+}
+
+// configure the maven publication
+publishing {
+	publications {
+		mavenJava(MavenPublication) {
+			// add all the jars that should be included when publishing to maven
+			artifact(remapJar) {
+				builtBy remapJar
+			}
+			artifact(sourcesJar) {
+				builtBy remapSourcesJar
+			}
+		}
 	}
-	exclude("**/*.db")
-	exclude("**/*.psd")
-}
 
-task signJar(type: SignJar, dependsOn: reobfJar) {
-	inputFile = jar.archivePath
-	outputFile = jar.archivePath
-}
-
-def curse_api_key=""
-
-if(new File("$System.env.confidental_properties").exists()) {
-	println("Found confidenntal gradle properties, loading...")
-	Properties props = new Properties()
-	props.load(new FileInputStream("$System.env.confidental_properties"))
-	signJar.keyStore=props.jarsign_keystore
-	signJar.alias=props.jarsign_keystore_alias
-	signJar.storePass=props.jarsign_keystore_pass
-	signJar.keyPass=props.jarsign_key_pass
-
-	curse_api_key=props.curse_api_key
-
-	build.dependsOn signJar
-}
-
-curseforge {
-	apiKey = curse_api_key
-
-	project {
-		id = "${curse_id}"
-		changelogType = "markdown"
-		changelog = new File('changelog.md')
-		releaseType = mod_version_type
-		addGameVersion '1.12'
-		addGameVersion '1.12.1'
-		mainArtifact jar
+	// select the repositories you want to publish to
+	repositories {
+		// uncomment to publish to the local maven
+		// mavenLocal()
 	}
 }
